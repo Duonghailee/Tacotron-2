@@ -35,7 +35,7 @@ def synthesize(args, hparams, taco_checkpoint, wave_checkpoint, sentences):
 	log('Synthesizing mel-spectrograms from text..')
 	wavenet_in_dir = tacotron_synthesize(args, hparams, taco_checkpoint, sentences)
 	#Delete Tacotron model from graph
-	tf.reset_default_graph()
+	tf.compat.v1.reset_default_graph()
 	#Sleep 1/2 second to let previous graph close and avoid error messages while Wavenet is synthesizing
 	sleep(0.5)
 	log('Synthesizing audio from mel-spectrograms.. (This may take a while)')

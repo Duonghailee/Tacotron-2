@@ -12,13 +12,13 @@ class Embedding:
 	"""
 	def __init__(self, num_embeddings, embedding_dim, std=0.1, name='gc_embedding'):
 		#Create embedding table
-		self.embedding_table = tf.get_variable(name,
+		self.embedding_table = tf.compat.v1.get_variable(name,
 			[num_embeddings, embedding_dim], dtype=tf.float32,
-			initializer=tf.truncated_normal_initializer(mean=0., stddev=std))
+			initializer=tf.compat.v1.truncated_normal_initializer(mean=0., stddev=std))
 
 	def __call__(self, inputs):
 		#Do the actual embedding
-		return tf.nn.embedding_lookup(self.embedding_table, inputs)
+		return tf.nn.embedding_lookup(params=self.embedding_table, ids=inputs)
 
 class ReluActivation:
 	"""Simple class to wrap relu activation function in class for later call.
@@ -64,7 +64,7 @@ class WeightNorm(tf.keras.layers.Wrapper):
 		NotImplementedError: If `data_init` is True and running graph execution
 	"""
 	def __init__(self, layer, init=False, init_scale=1., name=None, **kwargs):
-		if not isinstance(layer, tf.layers.Layer):
+		if not isinstance(layer, tf.compat.v1.layers.Layer):
 			raise ValueError(
 					'Please initialize `WeightNorm` layer with a '
 					'`Layer` instance. You passed: {input}'.format(input=layer))
@@ -97,24 +97,24 @@ class WeightNorm(tf.keras.layers.Wrapper):
 	def _compute_weights(self):
 		"""Generate weights by combining the direction of weight vector
 		 with it's norm """
-		with tf.variable_scope('compute_weights'):
+		with tf.compat.v1.variable_scope('compute_weights'):
 			self.layer.kernel = tf.nn.l2_normalize(
 					self.layer.v, axis=self.norm_axes) * self.layer.g
 
 	def _init_norm(self, weights):
 		"""Set the norm of the weight vector"""
-		with tf.variable_scope('init_norm'):
+		with tf.compat.v1.variable_scope('init_norm'):
 			flat = tf.reshape(weights, [-1, self.layer_depth])
-			return tf.reshape(tf.norm(flat, axis=0), (self.layer_depth,))
+			return tf.reshape(tf.norm(tensor=flat, axis=0), (self.layer_depth,))
 
 	def _data_dep_init(self, inputs):
 		"""Data dependent initialization (Done by Calling a feedforward pass at step 0 of training)"""
-		with tf.variable_scope('data_dep_init'):
+		with tf.compat.v1.variable_scope('data_dep_init'):
 			# Generate data dependant init values
 			activation = self.layer.activation
 			self.layer.activation = None
 			x_init = self.layer.call(inputs)
-			m_init, v_init = tf.nn.moments(x_init, self.norm_axes)
+			m_init, v_init = tf.nn.moments(x=x_init, axes=self.norm_axes)
 			scale_init = self.init_scale / tf.sqrt(v_init + 1e-10)
 
 		# Assign data dependant init values and return x_init
@@ -129,7 +129,7 @@ class WeightNorm(tf.keras.layers.Wrapper):
 	def build(self, input_shape):
 		"""Build `Layer`"""
 		input_shape = tf.TensorShape(input_shape).as_list()
-		self.input_spec = tf.layers.InputSpec(shape=input_shape)
+		self.input_spec = tf.keras.layers.InputSpec(shape=input_shape)
 
 		if not self.layer.built:
 			if hasattr(self, 'data_format'):
@@ -155,7 +155,7 @@ class WeightNorm(tf.keras.layers.Wrapper):
 			self.layer.g = self.layer.add_variable(
 					name="g",
 					shape=(self.layer_depth,),
-					initializer=tf.constant_initializer(1.),
+					initializer=tf.compat.v1.constant_initializer(1.),
 					dtype=self.layer.kernel.dtype,
 					trainable=True)
 
@@ -170,7 +170,7 @@ class WeightNorm(tf.keras.layers.Wrapper):
 
 	def call(self, inputs):
 		"""Call `Layer`"""
-		with tf.variable_scope(self.scope) as scope:
+		with tf.compat.v1.variable_scope(self.scope) as scope:
 			if self.init:
 				return self._data_dep_init(inputs)
 			else:
@@ -193,7 +193,7 @@ class CausalConv1D(tf.keras.layers.Wrapper):
 				 weight_normalization_init = True,
 				 weight_normalization_init_scale = 1.,
 				 kernel_initializer=None,
-				 bias_initializer=tf.zeros_initializer(),
+				 bias_initializer=tf.compat.v1.zeros_initializer(),
 				 kernel_regularizer=None,
 				 bias_regularizer=None,
 				 activity_regularizer=None,
@@ -203,7 +203,7 @@ class CausalConv1D(tf.keras.layers.Wrapper):
 				 name=None,
 				 **kwargs):
 
-		layer = tf.layers.Conv1D(
+		layer = tf.compat.v1.layers.Conv1D(
 			filters=filters,
 			kernel_size=kernel_size,
 			strides=strides,
@@ -237,9 +237,9 @@ class CausalConv1D(tf.keras.layers.Wrapper):
 
 	def _get_linearized_weight(self, in_channels):
 		#layers.Conv1D
-		if tf.shape(self.layer.kernel) == (self.layer.filters, in_channels, self.kw):
+		if tf.shape(input=self.layer.kernel) == (self.layer.filters, in_channels, self.kw):
 			#[filters, in, kw]
-			weight = tf.transpose(self.layer.kernel, [2, 1, 0])
+			weight = tf.transpose(a=self.layer.kernel, perm=[2, 1, 0])
 		else:
 			#[kw, in, filters]
 			weight = self.layer.kernel
@@ -253,7 +253,7 @@ class CausalConv1D(tf.keras.layers.Wrapper):
 	def build(self, input_shape):
 		"""Build `Layer`"""
 		input_shape = tf.TensorShape(input_shape).as_list()
-		self.input_spec = tf.layers.InputSpec(shape=input_shape)
+		self.input_spec = tf.keras.layers.InputSpec(shape=input_shape)
 
 		self.layer.data_format = 'channels_first' if self.training else 'channels_last'
 		in_channels = input_shape[1] if self.layer.data_format == 'channels_first' else input_shape[-1]
@@ -269,14 +269,14 @@ class CausalConv1D(tf.keras.layers.Wrapper):
 		 
 	def call(self, inputs, incremental=False, convolution_queue=None):
 		"""Call 'Layer'"""
-		with tf.variable_scope(self.scope) as scope:
+		with tf.compat.v1.variable_scope(self.scope) as scope:
 			if incremental:
 				#Incremental run
 				#input [batch_size, time_length, channels]
 				if self.training:
 					raise RuntimeError('incremental step only supported during synthesis')
 
-				batch_size = tf.shape(inputs)[0]
+				batch_size = tf.shape(input=inputs)[0]
 
 				#Fast dilation
 				#Similar to using tf FIFOQueue to schedule states of dilated convolutions
@@ -310,17 +310,17 @@ class CausalConv1D(tf.keras.layers.Wrapper):
 			#Pad depending on data format
 			if self.layer.data_format == 'channels_first':
 				time_dim = -1
-				inputs_ = tf.pad(inputs, tf.constant([(0, 0), (0, 0), (padding, 0)]))
+				inputs_ = tf.pad(tensor=inputs, paddings=tf.constant([(0, 0), (0, 0), (padding, 0)]))
 			else:
 				assert self.layer.data_format == 'channels_last'
 				time_dim = 1
-				inputs_ = tf.pad(inputs, tf.constant([(0, 0), (padding, 0), (0, 0)]))
+				inputs_ = tf.pad(tensor=inputs, paddings=tf.constant([(0, 0), (padding, 0), (0, 0)]))
 
 			#Compute convolution
 			outputs = self.layer.call(inputs_)
 
 			#Assert time step consistency
-			with tf.control_dependencies([tf.assert_equal(tf.shape(outputs)[time_dim], tf.shape(inputs)[time_dim])]):
+			with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=outputs)[time_dim], tf.shape(input=inputs)[time_dim])]):
 				outputs = tf.identity(outputs, name='time_dimension_check')
 			return outputs
 
@@ -345,7 +345,7 @@ class Conv1D1x1(CausalConv1D):
 				 weight_normalization_init = True,
 				 weight_normalization_init_scale = 1.,
 				 kernel_initializer=None,
-				 bias_initializer=tf.zeros_initializer(),
+				 bias_initializer=tf.compat.v1.zeros_initializer(),
 				 kernel_regularizer=None,
 				 bias_regularizer=None,
 				 activity_regularizer=None,
@@ -379,7 +379,7 @@ class Conv1D1x1(CausalConv1D):
 		self.scope = 'Conv1D1x1' if name is None else name
 
 	def call(self, inputs, incremental=False, convolution_queue=None):
-		with tf.variable_scope(self.scope) as scope:
+		with tf.compat.v1.variable_scope(self.scope) as scope:
 			#Call parent class call function
 			return super(Conv1D1x1, self).call(inputs, incremental=incremental, convolution_queue=convolution_queue)
 
@@ -479,9 +479,9 @@ class ResidualConv1DGLU(tf.keras.layers.Wrapper):
 		Returns:
 			Tensor output
 		'''
-		with tf.variable_scope(self.scope) as scope:
+		with tf.compat.v1.variable_scope(self.scope) as scope:
 			residual = x
-			x = tf.layers.dropout(x, rate=self.dropout, training=not is_incremental)
+			x = tf.compat.v1.layers.dropout(x, rate=self.dropout, training=not is_incremental)
 			if is_incremental:
 				splitdim = -1
 				x, queue = self.layer.incremental_step(x, queue)
@@ -489,7 +489,7 @@ class ResidualConv1DGLU(tf.keras.layers.Wrapper):
 				splitdim = 1
 				x = self.layer(x)
 				#Remove future time steps (They normally don't exist but for safety)
-				x = x[:, :, :tf.shape(residual)[-1]]
+				x = x[:, :, :tf.shape(input=residual)[-1]]
 
 			a, b = tf.split(x, num_or_size_splits=2, axis=splitdim)
 
@@ -528,15 +528,15 @@ class NearestNeighborUpsample:
 
 	def __call__(self, inputs):
 		#inputs are supposed [batch_size, freq, time_steps, channels]
-		outputs = tf.image.resize_images(
+		outputs = tf.image.resize(
 			inputs,
-			size=[inputs.shape[1] * self.resize_strides[0], tf.shape(inputs)[2] * self.resize_strides[1]],
+			size=[inputs.shape[1] * self.resize_strides[0], tf.shape(input=inputs)[2] * self.resize_strides[1]],
 			method=1) #BILINEAR = 0, NEAREST_NEIGHBOR = 1, BICUBIC = 2, AREA = 3
 
 		return outputs
 
 
-class SubPixelConvolution(tf.layers.Conv2D):
+class SubPixelConvolution(tf.compat.v1.layers.Conv2D):
 	'''Sub-Pixel Convolutions are vanilla convolutions followed by Periodic Shuffle.
 
 	They serve the purpose of upsampling (like deconvolutions) but are faster and less prone to checkerboard artifact with the right initialization.
@@ -550,7 +550,7 @@ class SubPixelConvolution(tf.layers.Conv2D):
 		self.NN_init = NN_init
 		self.up_layers = up_layers
 		self.NN_scaler = NN_scaler
-		init_kernel = tf.constant_initializer(self._init_kernel(kernel_size, strides, conv_filters), dtype=tf.float32) if NN_init else None
+		init_kernel = tf.compat.v1.constant_initializer(self._init_kernel(kernel_size, strides, conv_filters), dtype=tf.float32) if NN_init else None
 
 		#Build convolution component and save Shuffle parameters.
 		super(SubPixelConvolution, self).__init__(
@@ -559,7 +559,7 @@ class SubPixelConvolution(tf.layers.Conv2D):
 			strides=(1, 1),
 			padding=padding,
 			kernel_initializer=init_kernel,
-			bias_initializer=tf.zeros_initializer(),
+			bias_initializer=tf.compat.v1.zeros_initializer(),
 			data_format='channels_last',
 			name=name, **kwargs)
 
@@ -594,7 +594,7 @@ class SubPixelConvolution(tf.layers.Conv2D):
 		self.built = True
 
 	def call(self, inputs):
-		with tf.variable_scope(self.scope) as scope:
+		with tf.compat.v1.variable_scope(self.scope) as scope:
 			#Inputs are supposed [batch_size, freq, time_steps, channels]
 			convolved = super(SubPixelConvolution, self).call(inputs)
 
@@ -604,9 +604,9 @@ class SubPixelConvolution(tf.layers.Conv2D):
 	def PS(self, inputs):
 		#Get different shapes
 		#[batch_size, H, W, C(out_c * r1 * r2)]
-		batch_size = tf.shape(inputs)[0]
+		batch_size = tf.shape(input=inputs)[0]
 		H = inputs.shape[1]
-		W = tf.shape(inputs)[2]
+		W = tf.shape(input=inputs)[2]
 		C = inputs.shape[-1]
 		r1, r2 = self.shuffle_strides #supposing strides = (freq_stride, time_stride)
 		out_c = self.out_filters #number of filters as output of the convolution (usually 1 for this model)
@@ -617,25 +617,25 @@ class SubPixelConvolution(tf.layers.Conv2D):
 		Xc = tf.split(inputs, out_c, axis=3) # out_c x [batch_size, H, W, C/out_c]
 		outputs = tf.concat([self._phase_shift(x, batch_size, H, W, r1, r2) for x in Xc], 3) #[batch_size, r1 * H, r2 * W, out_c]
 
-		with tf.control_dependencies([tf.assert_equal(out_c, tf.shape(outputs)[-1]),
-			tf.assert_equal(H * r1, tf.shape(outputs)[1])]):
+		with tf.control_dependencies([tf.compat.v1.assert_equal(out_c, tf.shape(input=outputs)[-1]),
+			tf.compat.v1.assert_equal(H * r1, tf.shape(input=outputs)[1])]):
 			outputs = tf.identity(outputs, name='SubPixelConv_output_check')
 
-		return tf.reshape(outputs, [tf.shape(outputs)[0], r1 * H, tf.shape(outputs)[2], out_c])
+		return tf.reshape(outputs, [tf.shape(input=outputs)[0], r1 * H, tf.shape(input=outputs)[2], out_c])
 
 	def _phase_shift(self, inputs, batch_size, H, W, r1, r2):
 		#Do a periodic shuffle on each output channel separately
 		x = tf.reshape(inputs, [batch_size, H, W, r1, r2]) #[batch_size, H, W, r1, r2]
 
 		#Width dim shuffle
-		x = tf.transpose(x, [4, 2, 3, 1, 0]) #[r2, W, r1, H, batch_size]
-		x = tf.batch_to_space_nd(x, [r2], [[0, 0]]) #[1, r2*W, r1, H, batch_size]
+		x = tf.transpose(a=x, perm=[4, 2, 3, 1, 0]) #[r2, W, r1, H, batch_size]
+		x = tf.batch_to_space(x, [r2], [[0, 0]]) #[1, r2*W, r1, H, batch_size]
 		x = tf.squeeze(x, [0]) #[r2*W, r1, H, batch_size]
 
 		#Height dim shuffle
-		x = tf.transpose(x, [1, 2, 0, 3]) #[r1, H, r2*W, batch_size]
-		x = tf.batch_to_space_nd(x, [r1], [[0, 0]]) #[1, r1*H, r2*W, batch_size]
-		x = tf.transpose(x, [3, 1, 2, 0]) #[batch_size, r1*H, r2*W, 1]
+		x = tf.transpose(a=x, perm=[1, 2, 0, 3]) #[r1, H, r2*W, batch_size]
+		x = tf.batch_to_space(x, [r1], [[0, 0]]) #[1, r1*H, r2*W, batch_size]
+		x = tf.transpose(a=x, perm=[3, 1, 2, 0]) #[batch_size, r1*H, r2*W, 1]
 
 		return x
 
@@ -654,12 +654,12 @@ class SubPixelConvolution(tf.layers.Conv2D):
 		return init_kernel * (self.NN_scaler)**(1/self.up_layers)
 
 
-class ResizeConvolution(tf.layers.Conv2D):
+class ResizeConvolution(tf.compat.v1.layers.Conv2D):
 	def __init__(self, filters, kernel_size, padding, strides, NN_init, NN_scaler, up_layers, name=None, **kwargs):
 		#Create initial kernel
 		self.up_layers = up_layers
 		self.NN_scaler = NN_scaler
-		init_kernel = tf.constant_initializer(self._init_kernel(kernel_size, strides), dtype=tf.float32) if NN_init else None
+		init_kernel = tf.compat.v1.constant_initializer(self._init_kernel(kernel_size, strides), dtype=tf.float32) if NN_init else None
 
 		#Build convolution component and save resize parameters
 		super(ResizeConvolution, self).__init__(
@@ -668,7 +668,7 @@ class ResizeConvolution(tf.layers.Conv2D):
 			strides=(1, 1),
 			padding=padding,
 			kernel_initializer=init_kernel,
-			bias_initializer=tf.zeros_initializer(),
+			bias_initializer=tf.compat.v1.zeros_initializer(),
 			data_format='channels_last',
 			name=name, **kwargs)
 
@@ -676,7 +676,7 @@ class ResizeConvolution(tf.layers.Conv2D):
 		self.scope = 'ResizeConvolution' if None else name
 
 	def call(self, inputs):
-		with tf.variable_scope(self.scope) as scope:
+		with tf.compat.v1.variable_scope(self.scope) as scope:
 			#Inputs are supposed [batch_size, freq, time_steps, channels]
 			resized = self.resize_layer(inputs)
 
@@ -694,7 +694,7 @@ class ResizeConvolution(tf.layers.Conv2D):
 
 		return init_kernel * (self.NN_scaler)**(1/self.up_layers)
 
-class ConvTranspose1D(tf.layers.Conv2DTranspose):
+class ConvTranspose1D(tf.compat.v1.layers.Conv2DTranspose):
 	def __init__(self, filters, kernel_size, padding, strides, NN_init, NN_scaler, up_layers, name=None, **kwargs):
 		#convert 1D filters to 2D.
 		kernel_size = (1, ) + kernel_size #(ks, ) -> (1, ks). Inputs supposed [batch_size, channels, freq, time_steps].
@@ -703,7 +703,7 @@ class ConvTranspose1D(tf.layers.Conv2DTranspose):
 		#Create initial kernel
 		self.up_layers = up_layers
 		self.NN_scaler = NN_scaler
-		init_kernel = tf.constant_initializer(self._init_kernel(kernel_size, strides, filters), dtype=tf.float32) if NN_init else None
+		init_kernel = tf.compat.v1.constant_initializer(self._init_kernel(kernel_size, strides, filters), dtype=tf.float32) if NN_init else None
 
 		super(ConvTranspose1D, self).__init__(
 			filters=filters,
@@ -711,14 +711,14 @@ class ConvTranspose1D(tf.layers.Conv2DTranspose):
 			strides=strides,
 			padding=padding,
 			kernel_initializer=init_kernel,
-			bias_initializer=tf.zeros_initializer(),
+			bias_initializer=tf.compat.v1.zeros_initializer(),
 			data_format='channels_first',
 			name=name, **kwargs)
 
 		self.scope = 'ConvTranspose1D' if None else name
 
 	def call(self, inputs):
-		with tf.variable_scope(self.scope) as scope:
+		with tf.compat.v1.variable_scope(self.scope) as scope:
 			return super(ConvTranspose1D, self).call(inputs)
 
 	def _init_kernel(self, kernel_size, strides, filters):
@@ -733,14 +733,14 @@ class ConvTranspose1D(tf.layers.Conv2DTranspose):
 		return init_kernel * (self.NN_scaler)**(1/self.up_layers)
 
 
-class ConvTranspose2D(tf.layers.Conv2DTranspose):
+class ConvTranspose2D(tf.compat.v1.layers.Conv2DTranspose):
 	def __init__(self, filters, kernel_size, padding, strides, NN_init, NN_scaler, up_layers, name=None, **kwargs):
 		freq_axis_kernel_size = kernel_size[0]
 
 		#Create initial kernel
 		self.up_layers = up_layers
 		self.NN_scaler = NN_scaler
-		init_kernel = tf.constant_initializer(self._init_kernel(kernel_size, strides), dtype=tf.float32) if NN_init else None
+		init_kernel = tf.compat.v1.constant_initializer(self._init_kernel(kernel_size, strides), dtype=tf.float32) if NN_init else None
 
 		super(ConvTranspose2D, self).__init__(
 			filters=filters,
@@ -748,14 +748,14 @@ class ConvTranspose2D(tf.layers.Conv2DTranspose):
 			strides=strides,
 			padding=padding,
 			kernel_initializer=init_kernel,
-			bias_initializer=tf.zeros_initializer(),
+			bias_initializer=tf.compat.v1.zeros_initializer(),
 			data_format='channels_first',
 			name=name, **kwargs)
 
 		self.scope = 'ConvTranspose2D' if None else name
 
 	def call(self, inputs):
-		with tf.variable_scope(self.scope) as scope:
+		with tf.compat.v1.variable_scope(self.scope) as scope:
 			return super(ConvTranspose2D, self).call(inputs)
 
 	def _init_kernel(self, kernel_size, strides):
@@ -787,15 +787,15 @@ def MaskedCrossEntropyLoss(outputs, targets, lengths=None, mask=None, max_len=No
 		mask = sequence_mask(lengths, max_len, False)
 
 	#One hot encode targets (outputs.shape[-1] = hparams.quantize_channels)
-	targets_ = tf.one_hot(targets, depth=tf.shape(outputs)[-1])
+	targets_ = tf.one_hot(targets, depth=tf.shape(input=outputs)[-1])
 
-	with tf.control_dependencies([tf.assert_equal(tf.shape(outputs), tf.shape(targets_))]):
-		losses = tf.nn.softmax_cross_entropy_with_logits_v2(logits=outputs, labels=targets_)
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=outputs), tf.shape(input=targets_))]):
+		losses = tf.nn.softmax_cross_entropy_with_logits(logits=outputs, labels=targets_)
 
-	with tf.control_dependencies([tf.assert_equal(tf.shape(mask), tf.shape(losses))]):
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=mask), tf.shape(input=losses))]):
 		masked_loss = losses * mask
 
-	return tf.reduce_sum(masked_loss) / tf.count_nonzero(masked_loss, dtype=tf.float32)
+	return tf.reduce_sum(input_tensor=masked_loss) / tf.math.count_nonzero(masked_loss, dtype=tf.float32)
 
 def DiscretizedMixtureLogisticLoss(outputs, targets, hparams, lengths=None, mask=None, max_len=None):
 	if lengths is None and mask is None:
@@ -806,15 +806,15 @@ def DiscretizedMixtureLogisticLoss(outputs, targets, hparams, lengths=None, mask
 		mask = sequence_mask(lengths, max_len, True)
 
 	#[batch_size, time_length, dimension]
-	ones = tf.ones([tf.shape(mask)[0], tf.shape(mask)[1], tf.shape(targets)[-1]], tf.float32)
+	ones = tf.ones([tf.shape(input=mask)[0], tf.shape(input=mask)[1], tf.shape(input=targets)[-1]], tf.float32)
 	mask_ = mask * ones
 
 	losses = discretized_mix_logistic_loss(
 		outputs, targets, num_classes=hparams.quantize_channels,
 		log_scale_min=hparams.log_scale_min, reduce=False)
 
-	with tf.control_dependencies([tf.assert_equal(tf.shape(losses), tf.shape(targets))]):
-		return tf.reduce_sum(losses * mask_) / tf.reduce_sum(mask_)
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=losses), tf.shape(input=targets))]):
+		return tf.reduce_sum(input_tensor=losses * mask_) / tf.reduce_sum(input_tensor=mask_)
 
 def GaussianMaximumLikelihoodEstimation(outputs, targets, hparams, lengths=None, mask=None, max_len=None):
 	if lengths is None and mask is None:
@@ -825,15 +825,15 @@ def GaussianMaximumLikelihoodEstimation(outputs, targets, hparams, lengths=None,
 		mask = sequence_mask(lengths, max_len, True)
 
 	#[batch_size, time_length, dimension]
-	ones = tf.ones([tf.shape(mask)[0], tf.shape(mask)[1], tf.shape(targets)[-1]], tf.float32)
+	ones = tf.ones([tf.shape(input=mask)[0], tf.shape(input=mask)[1], tf.shape(input=targets)[-1]], tf.float32)
 	mask_ = mask * ones
 
 	losses = gaussian_maximum_likelihood_estimation_loss(
 		outputs, targets, log_scale_min_gauss=hparams.log_scale_min_gauss,
 		num_classes=hparams.quantize_channels, use_cdf=hparams.cdf_loss, reduce=False)
 
-	with tf.control_dependencies([tf.assert_equal(tf.shape(losses), tf.shape(targets))]):
-		return tf.reduce_sum(losses * mask_) / tf.reduce_sum(mask_)
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=losses), tf.shape(input=targets))]):
+		return tf.reduce_sum(input_tensor=losses * mask_) / tf.reduce_sum(input_tensor=mask_)
 
 
 def MaskedMeanSquaredError(outputs, targets, lengths=None, mask=None, max_len=None):
@@ -845,8 +845,8 @@ def MaskedMeanSquaredError(outputs, targets, lengths=None, mask=None, max_len=No
 		mask = sequence_mask(lengths, max_len, True)
 
 	#[batch_size, frames, freq]
-	ones = tf.ones([tf.shape(mask)[0], tf.shape(mask)[1], tf.shape(targets)[-1]], tf.float32)
+	ones = tf.ones([tf.shape(input=mask)[0], tf.shape(input=mask)[1], tf.shape(input=targets)[-1]], tf.float32)
 	mask_ = mask * ones
 
-	with tf.control_dependencies([tf.assert_equal(tf.shape(targets), tf.shape(mask_))]):
-		return tf.losses.mean_squared_error(labels=targets, predictions=outputs, weights=mask_)
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=targets), tf.shape(input=mask_))]):
+		return tf.compat.v1.losses.mean_squared_error(labels=targets, predictions=outputs, weights=mask_)

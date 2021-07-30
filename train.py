@@ -50,7 +50,7 @@ def train(args, log_dir, hparams):
 		log('Tacotron Train\n')
 		log('###########################################################\n')
 		checkpoint = tacotron_train(args, log_dir, hparams)
-		tf.reset_default_graph()
+		tf.compat.v1.reset_default_graph()
 		#Sleep 1/2 second to let previous graph close and avoid error messages while synthesis
 		sleep(0.5)
 		if checkpoint is None:
@@ -65,7 +65,7 @@ def train(args, log_dir, hparams):
 		log('Tacotron GTA Synthesis\n')
 		log('###########################################################\n')
 		input_path = tacotron_synthesize(args, hparams, checkpoint)
-		tf.reset_default_graph()
+		tf.compat.v1.reset_default_graph()
 		#Sleep 1/2 second to let previous graph close and avoid error messages while Wavenet is training
 		sleep(0.5)
 		GTA_state = 1

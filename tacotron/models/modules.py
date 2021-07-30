@@ -6,11 +6,11 @@ class HighwayNet:
 		self.units = units
 		self.scope = 'HighwayNet' if name is None else name
 
-		self.H_layer = tf.layers.Dense(units=self.units, activation=tf.nn.relu, name='H')
-		self.T_layer = tf.layers.Dense(units=self.units, activation=tf.nn.sigmoid, name='T', bias_initializer=tf.constant_initializer(-1.))
+		self.H_layer = tf.compat.v1.layers.Dense(units=self.units, activation=tf.nn.relu, name='H')
+		self.T_layer = tf.compat.v1.layers.Dense(units=self.units, activation=tf.nn.sigmoid, name='T', bias_initializer=tf.compat.v1.constant_initializer(-1.))
 
 	def __call__(self, inputs):
-		with tf.variable_scope(self.scope):
+		with tf.compat.v1.variable_scope(self.scope):
 			H = self.H_layer(inputs)
 			T = self.T_layer(inputs)
 			return H * T + inputs * (1. - T)
@@ -31,12 +31,12 @@ class CBHG:
 
 		self.highway_units = highway_units
 		self.highwaynet_layers = [HighwayNet(highway_units, name='{}_highwaynet_{}'.format(self.scope, i+1)) for i in range(n_highwaynet_layers)]
-		self._fw_cell = tf.nn.rnn_cell.GRUCell(rnn_units, name='{}_forward_RNN'.format(self.scope))
-		self._bw_cell = tf.nn.rnn_cell.GRUCell(rnn_units, name='{}_backward_RNN'.format(self.scope))
+		self._fw_cell = tf.compat.v1.nn.rnn_cell.GRUCell(rnn_units, name='{}_forward_RNN'.format(self.scope))
+		self._bw_cell = tf.compat.v1.nn.rnn_cell.GRUCell(rnn_units, name='{}_backward_RNN'.format(self.scope))
 
 	def __call__(self, inputs, input_lengths):
-		with tf.variable_scope(self.scope):
-			with tf.variable_scope('conv_bank'):
+		with tf.compat.v1.variable_scope(self.scope):
+			with tf.compat.v1.variable_scope('conv_bank'):
 				#Convolution bank: concatenate on the last axis to stack channels from all convolutions
 				#The convolution bank uses multiple different kernel sizes to have many insights of the input sequence
 				#This makes one of the strengths of the CBHG block on sequences.
@@ -46,7 +46,7 @@ class CBHG:
 					)
 
 			#Maxpooling (dimension reduction, Using max instead of average helps finding "Edges" in mels)
-			maxpool_output = tf.layers.max_pooling1d(
+			maxpool_output = tf.compat.v1.layers.max_pooling1d(
 				conv_outputs,
 				pool_size=self.pool_size,
 				strides=1,
@@ -61,7 +61,7 @@ class CBHG:
 
 			#Additional projection in case of dimension mismatch (for HighwayNet "residual" connection)
 			if highway_input.shape[2] != self.highway_units:
-				highway_input = tf.layers.dense(highway_input, self.highway_units)
+				highway_input = tf.compat.v1.layers.dense(highway_input, self.highway_units)
 
 			#4-layer HighwayNet
 			for highwaynet in self.highwaynet_layers:
@@ -69,7 +69,7 @@ class CBHG:
 			rnn_input = highway_input
 
 			#Bidirectional RNN
-			outputs, states = tf.nn.bidirectional_dynamic_rnn(
+			outputs, states = tf.compat.v1.nn.bidirectional_dynamic_rnn(
 				self._fw_cell,
 				self._bw_cell,
 				rnn_input,
@@ -78,7 +78,7 @@ class CBHG:
 			return tf.concat(outputs, axis=2) #Concat forward and backward outputs
 
 
-class ZoneoutLSTMCell(tf.nn.rnn_cell.RNNCell):
+class ZoneoutLSTMCell(tf.compat.v1.nn.rnn_cell.RNNCell):
 	'''Wrapper for tf LSTM to create Zoneout LSTM Cell
 
 	inspired by:
@@ -97,7 +97,7 @@ class ZoneoutLSTMCell(tf.nn.rnn_cell.RNNCell):
 		if zm < 0. or zs > 1.:
 			raise ValueError('One/both provided Zoneout factors are not in [0, 1]')
 
-		self._cell = tf.nn.rnn_cell.LSTMCell(num_units, state_is_tuple=state_is_tuple, name=name)
+		self._cell = tf.compat.v1.nn.rnn_cell.LSTMCell(num_units, state_is_tuple=state_is_tuple, name=name)
 		self._zoneout_cell = zoneout_factor_cell
 		self._zoneout_outputs = zoneout_factor_output
 		self.is_training = is_training
@@ -130,14 +130,14 @@ class ZoneoutLSTMCell(tf.nn.rnn_cell.RNNCell):
 		#Apply zoneout
 		if self.is_training:
 			#nn.dropout takes keep_prob (probability to keep activations) not drop_prob (probability to mask activations)!
-			c = (1 - self._zoneout_cell) * tf.nn.dropout(new_c - prev_c, (1 - self._zoneout_cell)) + prev_c
-			h = (1 - self._zoneout_outputs) * tf.nn.dropout(new_h - prev_h, (1 - self._zoneout_outputs)) + prev_h
+			c = (1 - self._zoneout_cell) * tf.nn.dropout(new_c - prev_c, rate=(1 - (1 - self._zoneout_cell))) + prev_c
+			h = (1 - self._zoneout_outputs) * tf.nn.dropout(new_h - prev_h, rate=(1 - (1 - self._zoneout_outputs))) + prev_h
 
 		else:
 			c = (1 - self._zoneout_cell) * new_c + self._zoneout_cell * prev_c
 			h = (1 - self._zoneout_outputs) * new_h + self._zoneout_outputs * prev_h
 
-		new_state = tf.nn.rnn_cell.LSTMStateTuple(c, h) if self.state_is_tuple else tf.concat(1, [c, h])
+		new_state = tf.compat.v1.nn.rnn_cell.LSTMStateTuple(c, h) if self.state_is_tuple else tf.concat(1, [c, h])
 
 		return output, new_state
 
@@ -166,7 +166,7 @@ class EncoderConvolutions:
 		self.bnorm = hparams.batch_norm_position
 
 	def __call__(self, inputs):
-		with tf.variable_scope(self.scope):
+		with tf.compat.v1.variable_scope(self.scope):
 			x = inputs
 			for i in range(self.enc_conv_num_layers):
 				x = conv1d(x, self.kernel_size, self.channels, self.activation,
@@ -205,8 +205,8 @@ class EncoderRNN:
 			name='encoder_bw_LSTM')
 
 	def __call__(self, inputs, input_lengths):
-		with tf.variable_scope(self.scope):
-			outputs, (fw_state, bw_state) = tf.nn.bidirectional_dynamic_rnn(
+		with tf.compat.v1.variable_scope(self.scope):
+			outputs, (fw_state, bw_state) = tf.compat.v1.nn.bidirectional_dynamic_rnn(
 				self._fw_cell,
 				self._bw_cell,
 				inputs,
@@ -240,13 +240,13 @@ class Prenet:
 	def __call__(self, inputs):
 		x = inputs
 
-		with tf.variable_scope(self.scope):
+		with tf.compat.v1.variable_scope(self.scope):
 			for i, size in enumerate(self.layers_sizes):
-				dense = tf.layers.dense(x, units=size, activation=self.activation,
+				dense = tf.compat.v1.layers.dense(x, units=size, activation=self.activation,
 					name='dense_{}'.format(i + 1))
 				#The paper discussed introducing diversity in generation at inference time
 				#by using a dropout of 0.5 only in prenet layers (in both training and inference).
-				x = tf.layers.dropout(dense, rate=self.drop_rate, training=True,
+				x = tf.compat.v1.layers.dropout(dense, rate=self.drop_rate, training=True,
 					name='dropout_{}'.format(i + 1) + self.scope)
 		return x
 
@@ -276,10 +276,10 @@ class DecoderRNN:
 			zoneout_factor_output=zoneout,
 			name='decoder_LSTM_{}'.format(i+1)) for i in range(layers)]
 
-		self._cell = tf.contrib.rnn.MultiRNNCell(self.rnn_layers, state_is_tuple=True)
+		self._cell = tf.compat.v1.nn.rnn_cell.MultiRNNCell(self.rnn_layers, state_is_tuple=True)
 
 	def __call__(self, inputs, states):
-		with tf.variable_scope(self.scope):
+		with tf.compat.v1.variable_scope(self.scope):
 			return self._cell(inputs, states)
 
 
@@ -299,10 +299,10 @@ class FrameProjection:
 		self.activation = activation
 
 		self.scope = 'Linear_projection' if scope is None else scope
-		self.dense = tf.layers.Dense(units=shape, activation=activation, name='projection_{}'.format(self.scope))
+		self.dense = tf.compat.v1.layers.Dense(units=shape, activation=activation, name='projection_{}'.format(self.scope))
 
 	def __call__(self, inputs):
-		with tf.variable_scope(self.scope):
+		with tf.compat.v1.variable_scope(self.scope):
 			#If activation==None, this returns a simple Linear projection
 			#else the projection will be passed through an activation function
 			# output = tf.layers.dense(inputs, units=self.shape, activation=self.activation,
@@ -332,8 +332,8 @@ class StopProjection:
 		self.scope = 'stop_token_projection' if scope is None else scope
 
 	def __call__(self, inputs):
-		with tf.variable_scope(self.scope):
-			output = tf.layers.dense(inputs, units=self.shape,
+		with tf.compat.v1.variable_scope(self.scope):
+			output = tf.compat.v1.layers.dense(inputs, units=self.shape,
 				activation=None, name='projection_{}'.format(self.scope))
 
 			#During training, don't use activation as it is integrated inside the sigmoid_cross_entropy loss function
@@ -366,7 +366,7 @@ class Postnet:
 		self.bnorm = hparams.batch_norm_position
 
 	def __call__(self, inputs):
-		with tf.variable_scope(self.scope):
+		with tf.compat.v1.variable_scope(self.scope):
 			x = inputs
 			for i in range(self.postnet_num_layers - 1):
 				x = conv1d(x, self.kernel_size, self.channels, self.activation,
@@ -378,33 +378,33 @@ class Postnet:
 
 def conv1d(inputs, kernel_size, channels, activation, is_training, drop_rate, bnorm, scope):
 	assert bnorm in ('before', 'after')
-	with tf.variable_scope(scope):
-		conv1d_output = tf.layers.conv1d(
+	with tf.compat.v1.variable_scope(scope):
+		conv1d_output = tf.compat.v1.layers.conv1d(
 			inputs,
 			filters=channels,
 			kernel_size=kernel_size,
 			activation=activation if bnorm == 'after' else None,
 			padding='same')
-		batched = tf.layers.batch_normalization(conv1d_output, training=is_training)
+		batched = tf.compat.v1.layers.batch_normalization(conv1d_output, training=is_training)
 		activated = activation(batched) if bnorm == 'before' else batched
-		return tf.layers.dropout(activated, rate=drop_rate, training=is_training,
+		return tf.compat.v1.layers.dropout(activated, rate=drop_rate, training=is_training,
 								name='dropout_{}'.format(scope))
 
 def _round_up_tf(x, multiple):
 	# Tf version of remainder = x % multiple
-	remainder = tf.mod(x, multiple)
+	remainder = tf.math.floormod(x, multiple)
 	# Tf version of return x if remainder == 0 else x + multiple - remainder
-	x_round =  tf.cond(tf.equal(remainder, tf.zeros(tf.shape(remainder), dtype=tf.int32)),
-		lambda: x,
-		lambda: x + multiple - remainder)
+	x_round =  tf.cond(pred=tf.equal(remainder, tf.zeros(tf.shape(input=remainder), dtype=tf.int32)),
+		true_fn=lambda: x,
+		false_fn=lambda: x + multiple - remainder)
 
 	return x_round
 
 def sequence_mask(lengths, r, expand=True):
 	'''Returns a 2-D or 3-D tensorflow sequence mask depending on the argument 'expand'
 	'''
-	max_len = tf.reduce_max(lengths)
-	max_len = _round_up_tf(max_len, tf.convert_to_tensor(r))
+	max_len = tf.reduce_max(input_tensor=lengths)
+	max_len = _round_up_tf(max_len, tf.convert_to_tensor(value=r))
 	if expand:
 		return tf.expand_dims(tf.sequence_mask(lengths, maxlen=max_len, dtype=tf.float32), axis=-1)
 	return tf.sequence_mask(lengths, maxlen=max_len, dtype=tf.float32)
@@ -424,11 +424,11 @@ def MaskedMSE(targets, outputs, targets_lengths, hparams, mask=None):
 		mask = sequence_mask(targets_lengths, hparams.outputs_per_step, True)
 
 	#[batch_size, time_dimension, channel_dimension(mels)]
-	ones = tf.ones(shape=[tf.shape(mask)[0], tf.shape(mask)[1], tf.shape(targets)[-1]], dtype=tf.float32)
+	ones = tf.ones(shape=[tf.shape(input=mask)[0], tf.shape(input=mask)[1], tf.shape(input=targets)[-1]], dtype=tf.float32)
 	mask_ = mask * ones
 
-	with tf.control_dependencies([tf.assert_equal(tf.shape(targets), tf.shape(mask_))]):
-		return tf.losses.mean_squared_error(labels=targets, predictions=outputs, weights=mask_)
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=targets), tf.shape(input=mask_))]):
+		return tf.compat.v1.losses.mean_squared_error(labels=targets, predictions=outputs, weights=mask_)
 
 def MaskedSigmoidCrossEntropy(targets, outputs, targets_lengths, hparams, mask=None):
 	'''Computes a masked SigmoidCrossEntropy with logits
@@ -444,15 +444,15 @@ def MaskedSigmoidCrossEntropy(targets, outputs, targets_lengths, hparams, mask=N
 	if mask is None:
 		mask = sequence_mask(targets_lengths, hparams.outputs_per_step, False)
 
-	with tf.control_dependencies([tf.assert_equal(tf.shape(targets), tf.shape(mask))]):
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=targets), tf.shape(input=mask))]):
 		#Use a weighted sigmoid cross entropy to measure the <stop_token> loss. Set hparams.cross_entropy_pos_weight to 1
 		#will have the same effect as  vanilla tf.nn.sigmoid_cross_entropy_with_logits.
-		losses = tf.nn.weighted_cross_entropy_with_logits(targets=targets, logits=outputs, pos_weight=hparams.cross_entropy_pos_weight)
+		losses = tf.nn.weighted_cross_entropy_with_logits(labels=targets, logits=outputs, pos_weight=hparams.cross_entropy_pos_weight)
 
-	with tf.control_dependencies([tf.assert_equal(tf.shape(mask), tf.shape(losses))]):
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=mask), tf.shape(input=losses))]):
 		masked_loss = losses * mask
 
-	return tf.reduce_sum(masked_loss) / tf.count_nonzero(masked_loss, dtype=tf.float32)
+	return tf.reduce_sum(input_tensor=masked_loss) / tf.math.count_nonzero(masked_loss, dtype=tf.float32)
 
 def MaskedLinearLoss(targets, outputs, targets_lengths, hparams, mask=None):
 	'''Computes a masked MAE loss with priority to low frequencies
@@ -469,17 +469,17 @@ def MaskedLinearLoss(targets, outputs, targets_lengths, hparams, mask=None):
 		mask = sequence_mask(targets_lengths, hparams.outputs_per_step, True)
 
 	#[batch_size, time_dimension, channel_dimension(freq)]
-	ones = tf.ones(shape=[tf.shape(mask)[0], tf.shape(mask)[1], tf.shape(targets)[-1]], dtype=tf.float32)
+	ones = tf.ones(shape=[tf.shape(input=mask)[0], tf.shape(input=mask)[1], tf.shape(input=targets)[-1]], dtype=tf.float32)
 	mask_ = mask * ones
 
 	l1 = tf.abs(targets - outputs)
 	n_priority_freq = int(2000 / (hparams.sample_rate * 0.5) * hparams.num_freq)
 
-	with tf.control_dependencies([tf.assert_equal(tf.shape(targets), tf.shape(mask_))]):
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=targets), tf.shape(input=mask_))]):
 		masked_l1 = l1 * mask_
 		masked_l1_low = masked_l1[:,:,0:n_priority_freq]
 
-	mean_l1 = tf.reduce_sum(masked_l1) / tf.reduce_sum(mask_)
-	mean_l1_low = tf.reduce_sum(masked_l1_low) / tf.reduce_sum(mask_)
+	mean_l1 = tf.reduce_sum(input_tensor=masked_l1) / tf.reduce_sum(input_tensor=mask_)
+	mean_l1_low = tf.reduce_sum(input_tensor=masked_l1_low) / tf.reduce_sum(input_tensor=mask_)
 
 	return 0.5 * mean_l1 + 0.5 * mean_l1_low

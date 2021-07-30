@@ -139,7 +139,7 @@ def _log1p(x):
 	#wrapper to support tensorflow tensors/numpy arrays
 	isnumpy = isinstance(x, np.ndarray)
 	isscalar = np.isscalar(x)
-	return np.log1p(x) if (isnumpy or isscalar) else tf.log1p(x)
+	return np.log1p(x) if (isnumpy or isscalar) else tf.math.log1p(x)
 
 
 def _abs(x):
@@ -164,7 +164,7 @@ def _asfloat(x):
 
 def sequence_mask(input_lengths, max_len=None, expand=True):
 	if max_len is None:
-		max_len = tf.reduce_max(input_lengths)
+		max_len = tf.reduce_max(input_tensor=input_lengths)
 
 	if expand:
 		return tf.expand_dims(tf.sequence_mask(input_lengths, max_len, dtype=tf.float32), axis=-1)

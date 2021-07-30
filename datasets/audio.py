@@ -164,7 +164,7 @@ def _griffin_lim_tensorflow(S, hparams):
 	'''TensorFlow implementation of Griffin-Lim
 	Based on https://github.com/Kyubyong/tensorflow-exercises/blob/master/Audio_Processing.ipynb
 	'''
-	with tf.variable_scope('griffinlim'):
+	with tf.compat.v1.variable_scope('griffinlim'):
 		# TensorFlow's stft and istft operate on a batch of spectrograms; create batch of size 1
 		S = tf.expand_dims(S, 0)
 		S_complex = tf.identity(tf.cast(S, dtype=tf.complex64))
@@ -238,7 +238,7 @@ def _mel_to_linear_tensorflow(mel_spectrogram, hparams):
 	global _inv_mel_basis
 	if _inv_mel_basis is None:
 		_inv_mel_basis = np.linalg.pinv(_build_mel_basis(hparams))
-	return tf.transpose(tf.maximum(1e-10, tf.matmul(tf.cast(_inv_mel_basis, tf.float32), tf.transpose(mel_spectrogram, [1, 0]))), [1, 0])
+	return tf.transpose(a=tf.maximum(1e-10, tf.matmul(tf.cast(_inv_mel_basis, tf.float32), tf.transpose(a=mel_spectrogram, perm=[1, 0]))), perm=[1, 0])
 
 def _build_mel_basis(hparams):
 	assert hparams.fmax <= hparams.sample_rate // 2
@@ -253,7 +253,7 @@ def _db_to_amp(x):
 	return np.power(10.0, (x) * 0.05)
 
 def _db_to_amp_tensorflow(x):
-	return tf.pow(tf.ones(tf.shape(x)) * 10.0, x * 0.05)
+	return tf.pow(tf.ones(tf.shape(input=x)) * 10.0, x * 0.05)
 
 def _normalize(S, hparams):
 	if hparams.allow_clipping_in_normalization:

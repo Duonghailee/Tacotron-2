@@ -4,9 +4,9 @@ import tensorflow as tf
 
 def gaussian_maximum_likelihood_estimation_loss(y_hat, y, log_scale_min_gauss, num_classes, use_cdf=True, reduce=True):
 	'''compute the gaussian MLE loss'''
-	with tf.control_dependencies([tf.assert_equal(tf.shape(y_hat)[1], 2), tf.assert_equal(tf.rank(y_hat), 3)]):
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=y_hat)[1], 2), tf.compat.v1.assert_equal(tf.rank(y_hat), 3)]):
 		#[batch_size, time_steps, channels]
-		y_hat = tf.transpose(y_hat, [0, 2, 1])
+		y_hat = tf.transpose(a=y_hat, perm=[0, 2, 1])
 
 	#Unpack parameters: mean and log_scale outputs
 	mean = y_hat[:, :, 0]
@@ -23,7 +23,7 @@ def gaussian_maximum_likelihood_estimation_loss(y_hat, y, log_scale_min_gauss, n
 		cdf_min = gaussian.cdf(y - 1. / (num_classes - 1))
 
 		#Maximize the difference between CDF+ and CDF- (or its log)
-		log_prob = tf.log(tf.maximum(cdf_plus - cdf_min, 1e-12))
+		log_prob = tf.math.log(tf.maximum(cdf_plus - cdf_min, 1e-12))
 
 	else:
 		#Get log probability of each sample under this distribution in a computationally stable fashion
@@ -32,15 +32,15 @@ def gaussian_maximum_likelihood_estimation_loss(y_hat, y, log_scale_min_gauss, n
 
 	#Loss (Maximize log probability by minimizing its negative)
 	if reduce:
-		return -tf.reduce_sum(log_prob)
+		return -tf.reduce_sum(input_tensor=log_prob)
 	else:
 		return -tf.expand_dims(log_prob, [-1])
 
 def sample_from_gaussian(y, log_scale_min_gauss):
 	'''sample from learned gaussian distribution'''
-	with tf.control_dependencies([tf.assert_equal(tf.shape(y)[1], 2)]):
+	with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=y)[1], 2)]):
 		#[batch_size, time_length, channels]
-		y = tf.transpose(y, [0, 2, 1])
+		y = tf.transpose(a=y, perm=[0, 2, 1])
 
 	mean = y[:, :, 0]
 	log_scale = tf.maximum(y[:, :, 1], log_scale_min_gauss)

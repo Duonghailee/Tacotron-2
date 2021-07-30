@@ -72,31 +72,31 @@ class Feeder:
 			# Create placeholders for inputs and targets. Don't specify batch size because we want
 			# to be able to feed different batch sizes at eval time.
 			if is_scalar_input(hparams.input_type):
-				input_placeholder = tf.placeholder(tf.float32, shape=(None, 1, None), name='audio_inputs')
-				target_placeholder = tf.placeholder(tf.float32, shape=(None, None, 1), name='audio_targets')
+				input_placeholder = tf.compat.v1.placeholder(tf.float32, shape=(None, 1, None), name='audio_inputs')
+				target_placeholder = tf.compat.v1.placeholder(tf.float32, shape=(None, None, 1), name='audio_targets')
 				target_type = tf.float32
 			else:
-				input_placeholder = tf.placeholder(tf.float32, shape=(None, hparams.quantize_channels, None), name='audio_inputs')
-				target_placeholder = tf.placeholder(tf.int32, shape=(None, None, 1), name='audio_targets')
+				input_placeholder = tf.compat.v1.placeholder(tf.float32, shape=(None, hparams.quantize_channels, None), name='audio_inputs')
+				target_placeholder = tf.compat.v1.placeholder(tf.int32, shape=(None, None, 1), name='audio_targets')
 				target_type = tf.int32
 
 			self._placeholders = [
 			input_placeholder,
 			target_placeholder,
-			tf.placeholder(tf.int32, shape=(None, ), name='input_lengths'),
+			tf.compat.v1.placeholder(tf.int32, shape=(None, ), name='input_lengths'),
 			]
 
 			queue_types = [tf.float32, target_type, tf.int32]
 
 			if self.local_condition:
-				self._placeholders.append(tf.placeholder(tf.float32, shape=(None, hparams.num_mels, None), name='local_condition_features'))
+				self._placeholders.append(tf.compat.v1.placeholder(tf.float32, shape=(None, hparams.num_mels, None), name='local_condition_features'))
 				queue_types.append(tf.float32)
 			if self.global_condition:
-				self._placeholders.append(tf.placeholder(tf.int32, shape=(None, 1), name='global_condition_features'))
+				self._placeholders.append(tf.compat.v1.placeholder(tf.int32, shape=(None, 1), name='global_condition_features'))
 				queue_types.append(tf.int32)
 
 			# Create queue for buffering data
-			queue = tf.FIFOQueue(8, queue_types, name='input_queue')
+			queue = tf.queue.FIFOQueue(8, queue_types, name='input_queue')
 			self._enqueue_op = queue.enqueue(self._placeholders)
 			variables = queue.dequeue()
 
@@ -125,7 +125,7 @@ class Feeder:
 				self.global_condition_features.set_shape(self._placeholders[idx].shape)
 
 			# Create queue for buffering eval data
-			eval_queue = tf.FIFOQueue(1, queue_types, name='eval_queue')
+			eval_queue = tf.queue.FIFOQueue(1, queue_types, name='eval_queue')
 			self._eval_enqueue_op = eval_queue.enqueue(self._placeholders)
 			eval_variables = eval_queue.dequeue()
 

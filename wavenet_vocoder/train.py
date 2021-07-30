@@ -39,28 +39,28 @@ def add_embedding_stats(summary_writer, embedding_names, paths_to_meta, checkpoi
 	tf.contrib.tensorboard.plugins.projector.visualize_embeddings(summary_writer, config)
 
 def add_train_stats(model, hparams):
-	with tf.variable_scope('stats') as scope:
+	with tf.compat.v1.variable_scope('stats') as scope:
 		for i in range(hparams.wavenet_num_gpus):
-			tf.summary.histogram('wav_outputs %d' % i, model.tower_y_hat_log[i])
-			tf.summary.histogram('wav_targets %d' % i, model.tower_y_log[i])
+			tf.compat.v1.summary.histogram('wav_outputs %d' % i, model.tower_y_hat_log[i])
+			tf.compat.v1.summary.histogram('wav_targets %d' % i, model.tower_y_log[i])
 			if model.tower_means[i] is not None:
-				tf.summary.histogram('gaussian_means %d' % i, model.tower_means[i])
-				tf.summary.histogram('gaussian_log_scales %d' % i, model.tower_log_scales[i])
+				tf.compat.v1.summary.histogram('gaussian_means %d' % i, model.tower_means[i])
+				tf.compat.v1.summary.histogram('gaussian_log_scales %d' % i, model.tower_log_scales[i])
 
-		tf.summary.scalar('wavenet_learning_rate', model.learning_rate)
-		tf.summary.scalar('wavenet_loss', model.loss)
+		tf.compat.v1.summary.scalar('wavenet_learning_rate', model.learning_rate)
+		tf.compat.v1.summary.scalar('wavenet_loss', model.loss)
 
-		gradient_norms = [tf.norm(grad) for grad in model.gradients if grad is not None]
-		tf.summary.histogram('gradient_norm', gradient_norms)
-		tf.summary.scalar('max_gradient_norm', tf.reduce_max(gradient_norms)) #visualize gradients (in case of explosion)
-		return tf.summary.merge_all()
+		gradient_norms = [tf.norm(tensor=grad) for grad in model.gradients if grad is not None]
+		tf.compat.v1.summary.histogram('gradient_norm', gradient_norms)
+		tf.compat.v1.summary.scalar('max_gradient_norm', tf.reduce_max(input_tensor=gradient_norms)) #visualize gradients (in case of explosion)
+		return tf.compat.v1.summary.merge_all()
 
 def add_test_stats(summary_writer, step, eval_loss, hparams):
 	values = [
-	tf.Summary.Value(tag='Wavenet_eval_model/eval_stats/wavenet_eval_loss', simple_value=eval_loss),
+	tf.compat.v1.Summary.Value(tag='Wavenet_eval_model/eval_stats/wavenet_eval_loss', simple_value=eval_loss),
 	]
 
-	test_summary = tf.Summary(value=values)
+	test_summary = tf.compat.v1.Summary(value=values)
 	summary_writer.add_summary(test_summary, step)
 
 
@@ -80,7 +80,7 @@ def create_shadow_saver(model, global_step=None):
 		variables += [global_step]
 
 	shadow_dict = dict(zip(shadow_variables, variables)) #dict(zip(keys, values)) -> {key1: value1, key2: value2, ...}
-	return tf.train.Saver(shadow_dict, max_to_keep=20)
+	return tf.compat.v1.train.Saver(shadow_dict, max_to_keep=20)
 
 def load_averaged_model(sess, sh_saver, checkpoint_path):
 	sh_saver.restore(sess, checkpoint_path)
@@ -166,7 +166,7 @@ def save_checkpoint(sess, saver, checkpoint_path, global_step):
 
 
 def model_train_mode(args, feeder, hparams, global_step, init=False):
-	with tf.variable_scope('WaveNet_model', reuse=tf.AUTO_REUSE) as scope:
+	with tf.compat.v1.variable_scope('WaveNet_model', reuse=tf.compat.v1.AUTO_REUSE) as scope:
 		model_name = None
 		if args.model == 'Tacotron-2':
 			model_name = 'WaveNet'
@@ -180,7 +180,7 @@ def model_train_mode(args, feeder, hparams, global_step, init=False):
 		return model, stats
 
 def model_test_mode(args, feeder, hparams, global_step):
-	with tf.variable_scope('WaveNet_model', reuse=tf.AUTO_REUSE) as scope:
+	with tf.compat.v1.variable_scope('WaveNet_model', reuse=tf.compat.v1.AUTO_REUSE) as scope:
 		model_name = None
 		if args.model == 'Tacotron-2':
 			model_name = 'WaveNet'
@@ -218,11 +218,11 @@ def train(log_dir, args, hparams, input_path):
 	log(hparams_debug_string())
 
 	#Start by setting a seed for repeatability
-	tf.set_random_seed(hparams.wavenet_random_seed)
+	tf.compat.v1.set_random_seed(hparams.wavenet_random_seed)
 
 	#Set up data feeder
 	coord = tf.train.Coordinator()
-	with tf.variable_scope('datafeeder') as scope:
+	with tf.compat.v1.variable_scope('datafeeder') as scope:
 		feeder = Feeder(coord, input_path, args.base_dir, hparams)
 
 	#Set up model
@@ -252,16 +252,16 @@ def train(log_dir, args, hparams, input_path):
 	log('Wavenet training set to a maximum of {} steps'.format(args.wavenet_train_steps))
 
 	#Memory allocation on the memory
-	config = tf.ConfigProto()
+	config = tf.compat.v1.ConfigProto()
 	config.gpu_options.allow_growth = True
 	config.allow_soft_placement = True
 	run_init = False
 
 	#Train
-	with tf.Session(config=config) as sess:
+	with tf.compat.v1.Session(config=config) as sess:
 		try:
-			summary_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)
-			sess.run(tf.global_variables_initializer())
+			summary_writer = tf.compat.v1.summary.FileWriter(tensorboard_dir, sess.graph)
+			sess.run(tf.compat.v1.global_variables_initializer())
 
 			#saved model restoring
 			if args.restore:

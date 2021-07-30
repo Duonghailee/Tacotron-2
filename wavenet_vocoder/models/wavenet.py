@@ -35,8 +35,8 @@ def _expand_global_features(batch_size, time_length, global_features, data_forma
 	# g = tf.cond(tf.equal(tf.rank(global_features), 2),
 	# 	lambda: tf.expand_dims(global_features, axis=-1),
 	# 	lambda: global_features)
-	g = tf.reshape(global_features, [tf.shape(global_features)[0], tf.shape(global_features)[1], 1])
-	g_shape = tf.shape(g)
+	g = tf.reshape(global_features, [tf.shape(input=global_features)[0], tf.shape(input=global_features)[1], 1])
+	g_shape = tf.shape(input=g)
 
 	#[batch_size, channels, 1] ==> [batch_size, channels, time_length]
 	# ones = tf.ones([g_shape[0], g_shape[1], time_length], tf.int32)
@@ -48,7 +48,7 @@ def _expand_global_features(batch_size, time_length, global_features, data_forma
 
 	else:
 		#[batch_size, channels, time_length] ==> [batch_size, time_length, channels]
-		return tf.transpose(g, [0, 2, 1])
+		return tf.transpose(a=g, perm=[0, 2, 1])
 
 
 def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda x: 2**x):
@@ -100,7 +100,7 @@ class WaveNet():
 		self.scalar_input = is_scalar_input(hparams.input_type)
 
 		#first (embedding) convolution
-		with tf.variable_scope('input_convolution'):
+		with tf.compat.v1.variable_scope('input_convolution'):
 			if self.scalar_input:
 				self.first_conv = Conv1D1x1(hparams.residual_channels, 
 					weight_normalization=hparams.wavenet_weight_normalization, 
@@ -133,7 +133,7 @@ class WaveNet():
 			name='ResidualConv1DGLU_{}'.format(layer)))
 
 		#Final (skip) convolutions
-		with tf.variable_scope('skip_convolutions'):
+		with tf.compat.v1.variable_scope('skip_convolutions'):
 			self.last_conv_layers = [
 			ReluActivation(name='final_conv_relu1'),
 			Conv1D1x1(hparams.skip_out_channels, 
@@ -169,7 +169,7 @@ class WaveNet():
 			else:
 				#Learnable upsampling layers
 				for i, s in enumerate(hparams.upsample_scales):
-					with tf.variable_scope('local_conditioning_upsampling_{}'.format(i+1)):
+					with tf.compat.v1.variable_scope('local_conditioning_upsampling_{}'.format(i+1)):
 						if hparams.upsample_type == '2D':
 							convt = ConvTranspose2D(1, (hparams.freq_axis_kernel_size, s),
 								padding='same', strides=(1, s), NN_init=hparams.NN_init, NN_scaler=hparams.NN_scaler,
@@ -265,20 +265,20 @@ class WaveNet():
 		#1. Declare GPU devices
 		gpus = ['/gpu:{}'.format(i) for i in range(hp.wavenet_num_gpus)]
 		for i in range(hp.wavenet_num_gpus):
-			with tf.device(tf.train.replica_device_setter(ps_tasks=1, ps_device='/cpu:0', worker_device=gpus[i])):
-				with tf.variable_scope('inference') as scope:
+			with tf.device(tf.compat.v1.train.replica_device_setter(ps_tasks=1, ps_device='/cpu:0', worker_device=gpus[i])):
+				with tf.compat.v1.variable_scope('inference') as scope:
 					log('  device:                    {}'.format(i))
 					#Training
 					if self.is_training:
-						batch_size = tf.shape(x)[0]
+						batch_size = tf.shape(input=x)[0]
 						#[batch_size, time_length, 1]
-						self.tower_mask.append(self.get_mask(tower_input_lengths[i], maxlen=tf.shape(tower_x[i])[-1])) #To be used in loss computation
+						self.tower_mask.append(self.get_mask(tower_input_lengths[i], maxlen=tf.shape(input=tower_x[i])[-1])) #To be used in loss computation
 						#[batch_size, channels, time_length]
 						y_hat_train = self.step(tower_x[i], tower_c[i], tower_g[i], softmax=False) #softmax is automatically computed inside softmax_cross_entropy if needed
 
 						if is_mulaw_quantize(hparams.input_type):
 							#[batch_size, time_length, channels]
-							self.tower_y_hat_q.append(tf.transpose(y_hat_train, [0, 2, 1]))
+							self.tower_y_hat_q.append(tf.transpose(a=y_hat_train, perm=[0, 2, 1]))
 
 						self.tower_y_hat_train.append(y_hat_train)
 						self.tower_y.append(tower_y[i])
@@ -293,20 +293,20 @@ class WaveNet():
 
 						#Graph extension for log saving
 						#[batch_size, time_length]
-						shape_control = (batch_size, tf.shape(tower_x[i])[-1], 1)
-						with tf.control_dependencies([tf.assert_equal(tf.shape(tower_y[i]), shape_control)]):
+						shape_control = (batch_size, tf.shape(input=tower_x[i])[-1], 1)
+						with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=tower_y[i]), shape_control)]):
 							y_log = tf.squeeze(tower_y[i], [-1])
 							if is_mulaw_quantize(hparams.input_type):
 								self.tower_y[i] = y_log
 
-						y_hat_log = tf.cond(tf.equal(tf.rank(y_hat_train), 4),
-							lambda: tf.squeeze(y_hat_train, [-1]),
-							lambda: y_hat_train)
+						y_hat_log = tf.cond(pred=tf.equal(tf.rank(y_hat_train), 4),
+							true_fn=lambda: tf.squeeze(y_hat_train, [-1]),
+							false_fn=lambda: y_hat_train)
 						y_hat_log = tf.reshape(y_hat_log, [batch_size, hparams.out_channels, -1])
 
 						if is_mulaw_quantize(hparams.input_type):
 							#[batch_size, time_length]
-							y_hat_log = tf.argmax(tf.nn.softmax(y_hat_log, axis=1), 1)
+							y_hat_log = tf.argmax(input=tf.nn.softmax(y_hat_log, axis=1), axis=1)
 
 							y_hat_log = util.inv_mulaw_quantize(y_hat_log, hparams.quantize_channels)
 							y_log = util.inv_mulaw_quantize(y_log, hparams.quantize_channels)
@@ -348,13 +348,13 @@ class WaveNet():
 
 						if tower_c[i] is not None:
 							tower_c[i] = tf.expand_dims(tower_c[i][idx, :, :length], axis=0)
-							with tf.control_dependencies([tf.assert_equal(tf.rank(tower_c[i]), 3)]):
+							with tf.control_dependencies([tf.compat.v1.assert_equal(tf.rank(tower_c[i]), 3)]):
 								tower_c[i] = tf.identity(tower_c[i], name='eval_assert_c_rank_op')
 
 						if tower_g[i] is not None:
 							tower_g[i] = tf.expand_dims(tower_g[i][idx], axis=0)
 
-						batch_size = tf.shape(tower_c[i])[0]
+						batch_size = tf.shape(input=tower_c[i])[0]
 
 						#Start silence frame
 						if is_mulaw_quantize(hparams.input_type):
@@ -383,7 +383,7 @@ class WaveNet():
 						self.tower_eval_length.append(length)
 
 						if is_mulaw_quantize(hparams.input_type):
-							y_hat = tf.reshape(tf.argmax(y_hat, axis=1), [-1])
+							y_hat = tf.reshape(tf.argmax(input=y_hat, axis=1), [-1])
 							y_hat = inv_mulaw_quantize(y_hat, hparams.quantize_channels)
 							y_target = inv_mulaw_quantize(y_target, hparams.quantize_channels)
 						elif is_mulaw(hparams.input_type):
@@ -406,17 +406,17 @@ class WaveNet():
 
 					#synthesizing
 					else:
-						batch_size = tf.shape(tower_c[i])[0]
+						batch_size = tf.shape(input=tower_c[i])[0]
 						if c is None:
 							assert synthesis_length is not None
 						else:
 							#[batch_size, local_condition_time, local_condition_dimension(num_mels)]
 							message = ('Expected 3 dimension shape [batch_size(1), time_length, {}] for local condition features but found {}'.format(
 									hparams.cin_channels, tower_c[i].shape))
-							with tf.control_dependencies([tf.assert_equal(tf.rank(tower_c[i]), 3, message=message)]):
+							with tf.control_dependencies([tf.compat.v1.assert_equal(tf.rank(tower_c[i]), 3, message=message)]):
 								tower_c[i] = tf.identity(tower_c[i], name='synthesis_assert_c_rank_op')
 
-							Tc = tf.shape(tower_c[i])[1]
+							Tc = tf.shape(input=tower_c[i])[1]
 							upsample_factor = audio.get_hop_size(self._hparams)
 
 							#Overwrite length with respect to local condition features
@@ -424,7 +424,7 @@ class WaveNet():
 
 							#[batch_size, local_condition_dimension, local_condition_time]
 							#time_length will be corrected using the upsample network
-							tower_c[i] = tf.transpose(tower_c[i], [0, 2, 1])
+							tower_c[i] = tf.transpose(a=tower_c[i], perm=[0, 2, 1])
 
 						if tower_g[i] is not None:
 							assert tower_g[i].shape == (batch_size, 1)
@@ -448,7 +448,7 @@ class WaveNet():
 							softmax=False, quantize=True, log_scale_min=hparams.log_scale_min, log_scale_min_gauss=hparams.log_scale_min_gauss)
 
 						if is_mulaw_quantize(hparams.input_type):
-							y_hat = tf.reshape(tf.argmax(y_hat, axis=1), [batch_size, -1])
+							y_hat = tf.reshape(tf.argmax(input=y_hat, axis=1), [batch_size, -1])
 							y_hat = util.inv_mulaw_quantize(y_hat, hparams.quantize_channels)
 						elif is_mulaw(hparams.input_type):
 							y_hat = util.inv_mulaw(tf.reshape(y_hat, [batch_size, -1]), hparams.quantize_channels)
@@ -464,7 +464,7 @@ class WaveNet():
 							log('  global_condition:          {}'.format(tower_g[i].shape))
 						log('  outputs:                   {}'.format(y_hat.shape))
 
-		self.variables = tf.trainable_variables()
+		self.variables = tf.compat.v1.trainable_variables()
 		log('  Receptive Field:           ({} samples / {:.1f} ms)'.format(self.receptive_field, self.receptive_field / hparams.sample_rate * 1000.))
 
 		#1_000_000 is causing syntax problems for some people?! Python please :)
@@ -481,8 +481,8 @@ class WaveNet():
 		gpus = ['/gpu:{}'.format(i) for i in range(self._hparams.wavenet_num_gpus)]
 
 		for i in range(self._hparams.wavenet_num_gpus):
-			with tf.device(tf.train.replica_device_setter(ps_tasks=1, ps_device='/cpu:0', worker_device=gpus[i])):
-				with tf.variable_scope('loss') as scope:
+			with tf.device(tf.compat.v1.train.replica_device_setter(ps_tasks=1, ps_device='/cpu:0', worker_device=gpus[i])):
+				with tf.compat.v1.variable_scope('loss') as scope:
 					if self.is_training:
 						if is_mulaw_quantize(self._hparams.input_type):
 							tower_loss = MaskedCrossEntropyLoss(self.tower_y_hat_q[i][:, :-1, :], self.tower_y[i][:, 1:], mask=self.tower_mask[i])
@@ -531,7 +531,7 @@ class WaveNet():
 		grad_device = '/cpu:0' if hp.tacotron_num_gpus > 1 else gpus[0]
 
 		with tf.device(grad_device):
-			with tf.variable_scope('optimizer'):
+			with tf.compat.v1.variable_scope('optimizer'):
 				#Create lr schedule
 				if hp.wavenet_lr_schedule == 'noam':
 					learning_rate = self._noam_learning_rate_decay(hp.wavenet_learning_rate, 
@@ -546,14 +546,14 @@ class WaveNet():
 
 				#Adam optimization
 				self.learning_rate = learning_rate
-				optimizer = tf.train.AdamOptimizer(learning_rate, hp.wavenet_adam_beta1,
+				optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate, hp.wavenet_adam_beta1,
 					hp.wavenet_adam_beta2, hp.wavenet_adam_epsilon)
 
 		# 2. Compute Gradient
 		for i in range(hp.wavenet_num_gpus):
 			#Device placemenet
-			with tf.device(tf.train.replica_device_setter(ps_tasks=1, ps_device='/cpu:0', worker_device=gpus[i])):
-				with tf.variable_scope('optimizer') as scope:
+			with tf.device(tf.compat.v1.train.replica_device_setter(ps_tasks=1, ps_device='/cpu:0', worker_device=gpus[i])):
+				with tf.compat.v1.variable_scope('optimizer') as scope:
 					gradients = optimizer.compute_gradients(self.tower_loss[i])
 					tower_gradients.append(gradients)
 
@@ -572,7 +572,7 @@ class WaveNet():
 
 					#Average over the 'tower' dimension.
 					grad = tf.concat(axis=0, values=grads)
-					grad = tf.reduce_mean(grad, 0)
+					grad = tf.reduce_mean(input_tensor=grad, axis=0)
 				else:
 					grad = grad_and_vars[0][0]
 
@@ -598,7 +598,7 @@ class WaveNet():
 			else:
 				clipped_grads = avg_grads
 
-			with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+			with tf.control_dependencies(tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.UPDATE_OPS)):
 				adam_optimize = optimizer.apply_gradients(zip(clipped_grads, variables),
 					global_step=global_step)
 
@@ -621,7 +621,7 @@ class WaveNet():
 							 decay_rate=0.5,
 							 decay_steps=300000):
 		#Compute natural exponential decay
-		lr = tf.train.exponential_decay(init_lr,
+		lr = tf.compat.v1.train.exponential_decay(init_lr,
 			global_step,
 			decay_steps,
 			decay_rate,
@@ -663,16 +663,16 @@ class WaveNet():
 			a Tensor of shape [batch_size, out_channels, time_length]
 		"""
 		#[batch_size, channels, time_length] -> [batch_size, time_length, channels]
-		batch_size = tf.shape(x)[0]
-		time_length = tf.shape(x)[-1]
+		batch_size = tf.shape(input=x)[0]
+		time_length = tf.shape(input=x)[-1]
 
 		if g is not None:
 			if self.embed_speakers is not None:
 				#[batch_size, 1] ==> [batch_size, 1, gin_channels]
 				g = self.embed_speakers(tf.reshape(g, [batch_size, -1]))
 				#[batch_size, gin_channels, 1]
-				with tf.control_dependencies([tf.assert_equal(tf.rank(g), 3)]):
-					g = tf.transpose(g, [0, 2, 1])
+				with tf.control_dependencies([tf.compat.v1.assert_equal(tf.rank(g), 3)]):
+					g = tf.transpose(a=g, perm=[0, 2, 1])
 
 		#Expand global conditioning features to all time steps
 		g_bct = _expand_global_features(batch_size, time_length, g, data_format='BCT')
@@ -696,7 +696,7 @@ class WaveNet():
 
 			#[batch_size, cin_channels, time_length]
 			c = tf.squeeze(c, [expand_dim])
-			with tf.control_dependencies([tf.assert_equal(tf.shape(c)[-1], tf.shape(x)[-1])]):
+			with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=c)[-1], tf.shape(input=x)[-1])]):
 				c = tf.identity(c, name='control_c_and_x_shape')
 
 			self.upsampled_local_features = c
@@ -745,35 +745,35 @@ class WaveNet():
 			Tensor of shape [batch_size, channels, time_length] or [batch_size, channels, 1]
 				Generated one_hot encoded samples
 		"""
-		batch_size = tf.shape(initial_input)[0]
+		batch_size = tf.shape(input=initial_input)[0]
 
 		#Note: should reshape to [batch_size, time_length, channels]
 		#not [batch_size, channels, time_length]
 		if test_inputs is not None:
 			if self.scalar_input:
-				if tf.shape(test_inputs)[1] == 1:
-					test_inputs = tf.transpose(test_inputs, [0, 2, 1])
+				if tf.shape(input=test_inputs)[1] == 1:
+					test_inputs = tf.transpose(a=test_inputs, perm=[0, 2, 1])
 			else:
 				test_inputs = tf.cast(test_inputs, tf.int32)
 				test_inputs = tf.one_hot(indices=test_inputs, depth=self._hparams.quantize_channels, dtype=tf.float32)
 				test_inputs = tf.squeeze(test_inputs, [2])
 
-				if tf.shape(test_inputs)[1] == self._hparams.out_channels:
-					test_inputs = tf.transpose(test_inputs, [0, 2, 1])
+				if tf.shape(input=test_inputs)[1] == self._hparams.out_channels:
+					test_inputs = tf.transpose(a=test_inputs, perm=[0, 2, 1])
 
-			batch_size = tf.shape(test_inputs)[0]
+			batch_size = tf.shape(input=test_inputs)[0]
 			if time_length is None:
-				time_length = tf.shape(test_inputs)[1]
+				time_length = tf.shape(input=test_inputs)[1]
 			else:
-				time_length = tf.maximum(time_length, tf.shape(test_inputs)[1])
+				time_length = tf.maximum(time_length, tf.shape(input=test_inputs)[1])
 
 		#Global conditioning
 		if g is not None:
 			if self.embed_speakers is not None:
 				g = self.embed_speakers(tf.reshape(g, [batch_size, -1]))
 				#[batch_size, channels, 1]
-				with tf.control_dependencies([tf.assert_equal(tf.rank(g), 3)]):
-					g = tf.transpose(g, [0, 2, 1])
+				with tf.control_dependencies([tf.compat.v1.assert_equal(tf.rank(g), 3)]):
+					g = tf.transpose(a=g, perm=[0, 2, 1])
 
 		self.g_btc = _expand_global_features(batch_size, time_length, g, data_format='BTC')
 
@@ -797,14 +797,14 @@ class WaveNet():
 
 			#[batch_size, channels, time_length]
 			c = tf.squeeze(c, [expand_dim])
-			with tf.control_dependencies([tf.assert_equal(tf.shape(c)[-1], time_length)]):
-				self.c = tf.transpose(c, [0, 2, 1])
+			with tf.control_dependencies([tf.compat.v1.assert_equal(tf.shape(input=c)[-1], time_length)]):
+				self.c = tf.transpose(a=c, perm=[0, 2, 1])
 
 			self.upsampled_local_features = c
 
 		#Initialize loop variables
 		if initial_input.shape[1] == self._hparams.out_channels:
-			initial_input = tf.transpose(initial_input, [0, 2, 1])
+			initial_input = tf.transpose(a=initial_input, perm=[0, 2, 1])
 
 		initial_time = tf.constant(0, dtype=tf.int32)
 		# if test_inputs is not None:
@@ -862,7 +862,7 @@ class WaveNet():
 					else tf.reshape(x, [batch_size, -1])
 				if quantize:
 					#[batch_size, 1]
-					sample = tf.multinomial(x, 1) #Pick a sample using x as probability (one for each batch)
+					sample = tf.random.categorical(logits=x, num_samples=1) #Pick a sample using x as probability (one for each batch)
 					#[batch_size, 1, quantize_channels] (time dimension extended by default)
 					x = tf.one_hot(sample, depth=self._hparams.quantize_channels)
 
@@ -877,7 +877,7 @@ class WaveNet():
 			if test_inputs is not None:
 				next_input = tf.expand_dims(test_inputs[:, time, :], axis=1)
 
-			time = tf.Print(time + 1, [time+1, time_length])
+			time = tf.compat.v1.Print(time + 1, [time+1, time_length])
 			#output = x (maybe next input)
 			# if test_inputs is not None:
 			# 	#override next_input with ground truth
@@ -886,8 +886,8 @@ class WaveNet():
 			return (time, outputs_ta, next_input, loss_outputs_ta, new_queues)
 
 		res = tf.while_loop(
-			condition,
-			body,
+			cond=condition,
+			body=body,
 			loop_vars=[
 				initial_time, initial_outputs_ta, initial_input, initial_loss_outputs_ta, initial_queues
 			],
@@ -903,12 +903,12 @@ class WaveNet():
 
 		self.tower_y_hat_eval = []
 		if is_mulaw_quantize(self._hparams.input_type):
-			self.tower_y_hat_eval.append(tf.transpose(eval_outputs, [1, 0, 2]))
+			self.tower_y_hat_eval.append(tf.transpose(a=eval_outputs, perm=[1, 0, 2]))
 		else:
-			self.tower_y_hat_eval.append(tf.transpose(eval_outputs, [1, 2, 0]))
+			self.tower_y_hat_eval.append(tf.transpose(a=eval_outputs, perm=[1, 2, 0]))
 
 		#[batch_size, channels, time_length]
-		return tf.transpose(outputs, [1, 2, 0])
+		return tf.transpose(a=outputs, perm=[1, 2, 0])
 
 	def clear_queue(self):
 		self.first_conv.clear_queue()

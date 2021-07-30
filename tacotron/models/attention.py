@@ -60,14 +60,14 @@ def _location_sensitive_score(W_query, W_fil, W_keys):
 	dtype = W_query.dtype
 	num_units = W_keys.shape[-1].value or array_ops.shape(W_keys)[-1]
 
-	v_a = tf.get_variable(
+	v_a = tf.compat.v1.get_variable(
 		'attention_variable_projection', shape=[num_units], dtype=dtype,
-		initializer=tf.contrib.layers.xavier_initializer())
-	b_a = tf.get_variable(
+		initializer=tf.compat.v1.keras.initializers.VarianceScaling(scale=1.0, mode="fan_avg", distribution="uniform"))
+	b_a = tf.compat.v1.get_variable(
 		'attention_bias', shape=[num_units], dtype=dtype,
-		initializer=tf.zeros_initializer())
+		initializer=tf.compat.v1.zeros_initializer())
 
-	return tf.reduce_sum(v_a * tf.tanh(W_keys + W_query + W_fil + b_a), [2])
+	return tf.reduce_sum(input_tensor=v_a * tf.tanh(W_keys + W_query + W_fil + b_a), axis=[2])
 
 def _smoothing_normalization(e):
 	"""Applies a smoothing normalization function instead of softmax
@@ -89,7 +89,7 @@ def _smoothing_normalization(e):
 		matrix [batch_size, max_time]: [0, 1] normalized alignments with possible
 			attendance to multiple memory time steps.
 	"""
-	return tf.nn.sigmoid(e) / tf.reduce_sum(tf.nn.sigmoid(e), axis=-1, keepdims=True)
+	return tf.nn.sigmoid(e) / tf.reduce_sum(input_tensor=tf.nn.sigmoid(e), axis=-1, keepdims=True)
 
 
 class LocationSensitiveAttention(BahdanauAttention):
@@ -156,14 +156,14 @@ class LocationSensitiveAttention(BahdanauAttention):
 				probability_fn=normalization_function,
 				name=name)
 
-		self.location_convolution = tf.layers.Conv1D(filters=hparams.attention_filters,
+		self.location_convolution = tf.compat.v1.layers.Conv1D(filters=hparams.attention_filters,
 			kernel_size=hparams.attention_kernel, padding='same', use_bias=True,
-			bias_initializer=tf.zeros_initializer(), name='location_features_convolution')
-		self.location_layer = tf.layers.Dense(units=num_units, use_bias=False,
+			bias_initializer=tf.compat.v1.zeros_initializer(), name='location_features_convolution')
+		self.location_layer = tf.compat.v1.layers.Dense(units=num_units, use_bias=False,
 			dtype=tf.float32, name='location_features_layer')
 		self._cumulate = cumulate_weights
 		self.synthesis_constraint = hparams.synthesis_constraint and not is_training
-		self.attention_win_size = tf.convert_to_tensor(hparams.attention_win_size, dtype=tf.int32)
+		self.attention_win_size = tf.convert_to_tensor(value=hparams.attention_win_size, dtype=tf.int32)
 		self.constraint_type = hparams.synthesis_constraint_type
 
 	def __call__(self, query, state, prev_max_attentions):
@@ -199,7 +199,7 @@ class LocationSensitiveAttention(BahdanauAttention):
 			energy = _location_sensitive_score(processed_query, processed_location_features, self.keys)
 
 		if self.synthesis_constraint:
-			Tx = tf.shape(energy)[-1]
+			Tx = tf.shape(input=energy)[-1]
 			# prev_max_attentions = tf.squeeze(prev_max_attentions, [-1])
 			if self.constraint_type == 'monotonic':
 				key_masks = tf.sequence_mask(prev_max_attentions, Tx)
@@ -211,11 +211,11 @@ class LocationSensitiveAttention(BahdanauAttention):
 			
 			masks = tf.logical_or(key_masks, reverse_masks)
 			paddings = tf.ones_like(energy) * (-2 ** 32 + 1)  # (N, Ty/r, Tx)
-			energy = tf.where(tf.equal(masks, False), energy, paddings)
+			energy = tf.compat.v1.where(tf.equal(masks, False), energy, paddings)
 
 		# alignments shape = energy shape = [batch_size, max_time]
 		alignments = self._probability_fn(energy, previous_alignments)
-		max_attentions = tf.argmax(alignments, -1, output_type=tf.int32) # (N, Ty/r)
+		max_attentions = tf.argmax(input=alignments, axis=-1, output_type=tf.int32) # (N, Ty/r)
 
 		# Cumulate alignments
 		if self._cumulate:

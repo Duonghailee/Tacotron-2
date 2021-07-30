@@ -17,14 +17,14 @@ class Synthesizer:
 		self._hparams = hparams
 		local_cond, global_cond = self._check_conditions()
 
-		self.local_conditions = tf.placeholder(tf.float32, shape=(None, None, hparams.num_mels), name='local_condition_features') if local_cond else None
-		self.global_conditions = tf.placeholder(tf.int32, shape=(None, 1), name='global_condition_features') if global_cond else None
-		self.synthesis_length = tf.placeholder(tf.int32, shape=(), name='synthesis_length') if not local_cond else None
-		self.targets = tf.placeholder(tf.float32, shape=(1, None, 1), name='audio_targets') if hparams.wavenet_synth_debug else None #Debug only with 1 wav
-		self.input_lengths = tf.placeholder(tf.int32, shape=(1, ), name='input_lengths') if hparams.wavenet_synth_debug else None
+		self.local_conditions = tf.compat.v1.placeholder(tf.float32, shape=(None, None, hparams.num_mels), name='local_condition_features') if local_cond else None
+		self.global_conditions = tf.compat.v1.placeholder(tf.int32, shape=(None, 1), name='global_condition_features') if global_cond else None
+		self.synthesis_length = tf.compat.v1.placeholder(tf.int32, shape=(), name='synthesis_length') if not local_cond else None
+		self.targets = tf.compat.v1.placeholder(tf.float32, shape=(1, None, 1), name='audio_targets') if hparams.wavenet_synth_debug else None #Debug only with 1 wav
+		self.input_lengths = tf.compat.v1.placeholder(tf.int32, shape=(1, ), name='input_lengths') if hparams.wavenet_synth_debug else None
 		self.synth_debug = hparams.wavenet_synth_debug
 
-		with tf.variable_scope('WaveNet_model') as scope:
+		with tf.compat.v1.variable_scope('WaveNet_model') as scope:
 			self.model = create_model(model_name, hparams)
 			self.model.initialize(y=None, c=self.local_conditions, g=self.global_conditions,
 				input_lengths=self.input_lengths, synthesis_length=self.synthesis_length, test_inputs=self.targets)
@@ -34,12 +34,12 @@ class Synthesizer:
 
 			log('Loading checkpoint: {}'.format(checkpoint_path))
 			#Memory allocation on the GPU as needed
-			config = tf.ConfigProto()
+			config = tf.compat.v1.ConfigProto()
 			config.gpu_options.allow_growth = True
 			config.allow_soft_placement = True
 
-			self.session = tf.Session(config=config)
-			self.session.run(tf.global_variables_initializer())
+			self.session = tf.compat.v1.Session(config=config)
+			self.session.run(tf.compat.v1.global_variables_initializer())
 
 		load_averaged_model(self.session, sh_saver, checkpoint_path)
 
