@@ -1,8 +1,10 @@
 import numpy as np
 import tensorflow as tf
+import os
 
 # Default hyperparameters
-hparams = tf.contrib.training.HParams(
+tf.config.experimental_connect_to_host('grpc://' + os.environ['COLAB_TPU_ADDR'])
+hparams = tf.training.HParams(
 	# Comma-separated list of cleaners to run on text prior to training and eval. For non-English
 	# text, you may want to use "basic_cleaners" or "transliteration_cleaners".
 	cleaners='english_cleaners',
